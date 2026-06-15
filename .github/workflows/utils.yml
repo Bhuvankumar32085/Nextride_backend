@@ -22,3 +22,7 @@ jobs:
       - run: docker build -t bhuvan32085/nextride-utils:latest ./utils
 
       - run: docker push bhuvan32085/nextride-utils:latest
+
+      - name: Trigger Render Deploy
+        run: |
+          curl -X POST "${{ secrets.UTILS_RENDER_DEPLOY_HOOK }}"

@@ -22,3 +22,7 @@ jobs:
       - run: docker build -t bhuvan32085/nextride-realtime:latest ./realtime
 
       - run: docker push bhuvan32085/nextride-realtime:latest
+
+      - name: Trigger Render Deploy
+        run: |
+          curl -X POST "${{ secrets.REALTIME_RENDER_DEPLOY_HOOK }}"

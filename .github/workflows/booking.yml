@@ -22,3 +22,7 @@ jobs:
       - run: docker build -t bhuvan32085/nextride-booking:latest ./booking
 
       - run: docker push bhuvan32085/nextride-booking:latest
+
+      - name: Trigger Render Deploy
+        run: |
+          curl -X POST "${{ secrets.BOOKING_RENDER_DEPLOY_HOOK }}"
