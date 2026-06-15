@@ -30,3 +30,5 @@ connectDB()
   .catch((error) => {
     console.error("Booking DB connection failed:", error);
   });
+
+  // check ci cd test 1 commit

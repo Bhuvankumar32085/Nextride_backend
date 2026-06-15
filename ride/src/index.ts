@@ -32,3 +32,5 @@ connectDB()
   .catch((error) => {
     console.error("Failed to connect to the database:", error);
   });
+
+   // check ci cd test 1 commit
