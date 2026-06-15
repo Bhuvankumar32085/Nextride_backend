@@ -28,3 +28,7 @@ jobs:
       - name: Push Docker Image
         run: |
           docker push bhuvan32085/nextride-auth:latest
+      
+      - name: Trigger Render Deploy
+        run: |
+          curl -X POST "${{ secrets.AUTH_RENDER_DEPLOY_HOOK }}"
