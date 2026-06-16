@@ -57,7 +57,7 @@ router.patch("/start-ride/:bookingId", isAuth, startRideByPartner);
 router.patch("/cancel-ride/:bookingId", isAuth, cancelRideByPartner);
 router.patch("/complete-ride/:bookingId", isAuth, completeRideByPartner);
 router.patch("/cancel-ride-by-user/:bookingId", isAuth, cancelRideByUser);
-router.get("/user-ride", isAuth, getUserRide);
+router.get("/user-ride/:userId", getUserRide);
 
 router.post("/generate-drop-otp/:bookingId", isAuth, generateDropOtp);
 

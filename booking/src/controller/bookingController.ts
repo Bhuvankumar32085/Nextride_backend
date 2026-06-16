@@ -880,12 +880,14 @@ export const cancelRideByUser = tryCatch(
 );
 
 export const getUserRide = tryCatch(async (req: AuthenticatedRequest, res) => {
-  if (!req.user?._id) {
+  const { userId } = req.params;
+
+  if (!userId) {
     return sendError(res, "Please Login First", null, 401);
   }
 
   const booking = await Booking.findOne({
-    userId: req.user._id,
+    userId: userId,
     bookingStatus: {
       $in: ["started", "confirmed"],
     },

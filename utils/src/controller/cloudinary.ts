@@ -61,6 +61,7 @@ router.delete("/delete", async (req, res) => {
 
 router.post("/upload-multiple", async (req, res) => {
   try {
+    console.log("UPLOAD MULTIPLE HIT");
     const secret = req.headers["x-service-secret"];
 
     if (secret !== process.env.SERVICE_SECRET) {

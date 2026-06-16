@@ -406,7 +406,6 @@ export const getBankDetails = tryCatch(
       owner: new mongoose.Types.ObjectId(user._id),
     });
 
-
     if (!partnerBank) {
       return res.status(404).json({
         success: false,
@@ -452,8 +451,6 @@ export const getAdminDetails = tryCatch(
       rejectedPartners,
       reviewPartners,
     } = data.data;
-
-   
 
     // get ids
     const partnerIds = reviewPartners.map((p: IUser) => p._id);
@@ -575,8 +572,6 @@ export const addAndUpdatePartnerPriceDetails = tryCatch(
 
     const { baseFare, pricePerKM, waitingCharge } = req.body;
 
-   
-
     if (baseFare == null || pricePerKM == null || waitingCharge == null) {
       return res.status(400).json({
         message: "All fields are required",
@@ -620,7 +615,6 @@ export const addAndUpdatePartnerPriceDetails = tryCatch(
             },
           },
         );
-
 
         uploadedPhoto = response.data;
       } catch (error) {
@@ -723,7 +717,6 @@ export const getPendiingVehicleForAdmin = tryCatch(
     const pendingVehicles = await Vehicle.find({
       owner: { $in: partnerIds },
     });
-
 
     if (!pendingVehicles.length) {
       return res.status(404).json({
@@ -926,7 +919,6 @@ export const findPartnerByVehicleType = tryCatch(async (req, res) => {
       "_id owner type vehcleModel number baseFare pricePerKM waitingCharge vehiclePhoto",
     )
     .lean();
-
 
   const ownerIds = vehicles.map((vehicle) => vehicle.owner.toString());
 

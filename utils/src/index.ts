@@ -6,12 +6,17 @@ import cloudinaryRouter from "./controller/cloudinary.js";
 import { startOnboardingConsumer } from "./consumer/onboarding.consumer.js";
 dotenv.config();
 
+console.log("FRONTEND_URL =", process.env.FRONTEND_URL);
+
 const app = express();
-app.use(cors());
+app.use(
+  cors({
+    origin: process.env.FRONTEND_URL, // frontend URL
+    credentials: true,
+  }),
+);
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
-
-
 
 const { CLOUDINARTY_CLOUD_NAME, CLOUDINARTY_API_KEY, CLOUDINARTY_API_SECRET } =
   process.env;
@@ -36,10 +41,18 @@ cloudinary.config({
 const PORT = process.env.PORT || 5003;
 
 startOnboardingConsumer();
+
+app.get("/api/v1/cloudinary/health", (_, res) => {
+  res.status(200).json({
+    success: true,
+    message: "Utils service awake",
+  });
+});
+
 app.use("/api/v1/cloudinary", cloudinaryRouter);
 
 app.listen(PORT, () => {
   console.log(`Utils service is running on port ${PORT}`);
 });
 
- // check ci cd test 1 commit
+// check ci cd test 1 commit

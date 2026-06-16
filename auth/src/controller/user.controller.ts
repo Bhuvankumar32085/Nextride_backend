@@ -836,13 +836,15 @@ export const getPartnerWithIn5_Km = tryCatch(async (req, res) => {
     {
       $match: {
         role: "partner",
-        isOnline: true,
+        // isOnline: true,
         _id: {
           $in: ownerIds.map((id) => new mongoose.Types.ObjectId(id)),
         },
       },
     },
   ]);
+
+
 
   const finalResult = nearbyPartners
     .map((partner) => {
