@@ -28,21 +28,31 @@ app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-startOnboardingConsumer();
-startAddNumber();
-changeRejectedReason();
-setRejectedReason();
-locationUpdateRealTime();
-userStatusConsumer();
-finalApproable();
+const initConsumers = async () => {
+  try {
+    await Promise.all([
+      startOnboardingConsumer(),
+      startAddNumber(),
+      changeRejectedReason(),
+      setRejectedReason(),
+      locationUpdateRealTime(),
+      userStatusConsumer(),
+      finalApproable(),
+    ]);
+    console.log("🐇 All Auth consumers initialized successfully");
+  } catch (error) {
+    console.error("⚠️ Warning: RabbitMQ consumer initialization failed:", error);
+  }
+};
+
+initConsumers();
 
 app.use("/api/v1/user", userRoutes);
 
 connectDB()
   .then(() => {
-    console.log("Connected to the database successfully");
     app.listen(PORT, () => {
-      (`Auth service is running on port ${PORT}`);
+      console.log(`Auth service is running on port ${PORT}`);
     });
   })
   .catch((error) => {

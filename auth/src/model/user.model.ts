@@ -72,6 +72,7 @@ const userSchema = new mongoose.Schema<IUser>(
 );
 
 userSchema.index({ location: "2dsphere" });
+userSchema.index({ role: 1, partnerStatus: 1, partnerOnboardingSteps: 1 });
 
 const User = mongoose.model<IUser>("User", userSchema);
 

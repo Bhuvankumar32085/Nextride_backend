@@ -28,8 +28,9 @@ export const addVehicleAndUpdate = tryCatch(
 
     number = number.toUpperCase();
 
-    //  check vichele number is valid using ragular expression
-    const vehicleNumberRegex = /^[A-Z]{2}\d{2}[A-Z]{2}\d{4}$/;
+    //  check vehicle number is valid using regular expression (Standard + Commercial + BH series)
+    const vehicleNumberRegex =
+      /^(?:[A-Z]{2}[0-9]{1,2}(?:[A-Z]{1,3})?[0-9]{4}|[0-9]{2}BH[0-9]{4}[A-Z]{1,2})$/i;
     if (!vehicleNumberRegex.test(number)) {
       res.status(400).json({ message: "Invalid vehicle number format" });
       return;

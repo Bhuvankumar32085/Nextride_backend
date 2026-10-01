@@ -47,20 +47,52 @@ export const createBooking = tryCatch(
       return sendError(res, "Driver Not Found");
     }
 
-    const existBooking = await Booking.findOne({
+    // 1. Check if user already has an active ongoing ride
+    const userActiveBooking = await Booking.findOne({
       userId: req.user?._id,
-      driverId: partnerId,
-      vehicleId,
       bookingStatus: {
-        $in: ["requested", "awaiting_payment", "confirmed", "started"],
+        $in: ["awaiting_payment", "confirmed", "started"],
       },
     });
 
-    if (existBooking) {
+    if (userActiveBooking) {
+      return sendError(
+        res,
+        "You already have an ongoing active ride",
+        userActiveBooking,
+        409,
+      );
+    }
+
+    // 2. Check if the driver is currently busy on an active ride
+    const driverActiveBooking = await Booking.findOne({
+      driverId: partnerId,
+      bookingStatus: {
+        $in: ["awaiting_payment", "confirmed", "started"],
+      },
+    });
+
+    if (driverActiveBooking) {
+      return sendError(
+        res,
+        "This partner is currently busy on another ride. Please choose another partner.",
+        null,
+        409,
+      );
+    }
+
+    const existRequestedBooking = await Booking.findOne({
+      userId: req.user?._id,
+      driverId: partnerId,
+      vehicleId,
+      bookingStatus: "requested",
+    });
+
+    if (existRequestedBooking) {
       return sendSuccess(
         res,
-        "Active booking already exists",
-        existBooking,
+        "Ride request already pending with this partner",
+        existRequestedBooking,
         200,
       );
     }
@@ -157,35 +189,41 @@ export const acceptBookingByPartner = tryCatch(
       return sendError(res, "Booking id is required", null, 401);
     }
 
-    const booking = await Booking.findOne({
-      _id: bookingId,
-      driverId: req.user._id,
-    });
-
-    if (!booking) {
-      return sendError(res, "Booking Not Found", null, 404);
-    }
-
+    // Check if driver is already on an active trip or awaiting payment
     const activeBooking = await Booking.findOne({
       driverId: req.user._id,
       bookingStatus: {
-        $in: ["awaiting_payment", "confirmed"],
+        $in: ["awaiting_payment", "confirmed", "started"],
       },
     });
 
     if (activeBooking) {
-      return sendError(res, "You already have an active booking", null, 409);
+      return sendError(res, "You already have an active booking or trip in progress", null, 409);
     }
 
-    if (booking.bookingStatus !== "requested") {
-      return sendError(res, `Booking already ${booking.bookingStatus}`);
+    const paymentDeadline = new Date(Date.now() + 5 * 60 * 1000);
+
+    // Atomic update to eliminate race condition
+    const booking = await Booking.findOneAndUpdate(
+      {
+        _id: bookingId,
+        driverId: req.user._id,
+        bookingStatus: "requested",
+      },
+      {
+        $set: {
+          bookingStatus: "awaiting_payment",
+          paymentDeadline,
+          expireAt: paymentDeadline,
+        },
+      },
+      { new: true },
+    );
+
+    if (!booking) {
+      return sendError(res, "Booking is no longer available or already processed", null, 409);
     }
 
-    booking.bookingStatus = "awaiting_payment";
-    booking.paymentDeadline = new Date(Date.now() + 5 * 60 * 1000);
-    booking.expireAt = booking.paymentDeadline;
-
-    await booking.save();
     try {
       await publishEvent("notify-user-by-partner", {
         event: "NOTIFY_USER_FOR_ACCEPT_BOOKING_BY_PARTNER",
@@ -214,18 +252,24 @@ export const cancleBookingByUser = tryCatch(
       return sendError(res, "Booking id is required", null, 401);
     }
 
-    const booking = await Booking.findOne({
-      _id: bookingId,
-      userId: req.user._id,
-    });
+    const booking = await Booking.findOneAndUpdate(
+      {
+        _id: bookingId,
+        userId: req.user._id,
+        bookingStatus: { $in: ["requested", "awaiting_payment"] },
+      },
+      {
+        $set: {
+          bookingStatus: "cancelled",
+          cancelledBy: "user",
+        },
+      },
+      { new: true },
+    );
 
     if (!booking) {
-      return sendError(res, "Booking Not Found", null, 404);
+      return sendError(res, "Booking cannot be cancelled in its current state", null, 400);
     }
-
-    booking.bookingStatus = "cancelled";
-
-    await booking.save();
 
     try {
       await publishEvent("notify-partner", {
@@ -255,20 +299,23 @@ export const rejectBookingByPartner = tryCatch(
       return sendError(res, "Booking id is required", null, 401);
     }
 
-    const booking = await Booking.findOne({
-      _id: bookingId,
-      driverId: req.user._id,
-    });
+    const booking = await Booking.findOneAndUpdate(
+      {
+        _id: bookingId,
+        driverId: req.user._id,
+        bookingStatus: "requested",
+      },
+      {
+        $set: {
+          bookingStatus: "rejected",
+        },
+      },
+      { new: true },
+    );
 
     if (!booking) {
-      return sendError(res, "Booking Not Found", null, 404);
+      return sendError(res, "Booking is not in requested state", null, 409);
     }
-
-    if (booking.bookingStatus !== "requested") {
-      return sendError(res, `Booking already ${booking.bookingStatus}`);
-    }
-
-    booking.bookingStatus = "rejected";
 
     try {
       await publishEvent("notify-user-by-partner", {
@@ -281,8 +328,6 @@ export const rejectBookingByPartner = tryCatch(
     } catch (error) {
       console.log("Queue failed but API success", error);
     }
-
-    await booking.save();
 
     return sendSuccess(res, "Booking rejected successfully", booking);
   },
@@ -384,29 +429,47 @@ export const verifyPayment = tryCatch(async (req, res) => {
 });
 
 export const razorpayWebhook = tryCatch(async (req, res) => {
-  const event = req.body.event;
+  const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET || process.env.RAZORPAY_KEY_SECRET;
+  const signature = req.headers["x-razorpay-signature"] as string;
+
+  if (webhookSecret && signature) {
+    const rawBody = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
+    const expectedSignature = crypto
+      .createHmac("sha256", webhookSecret)
+      .update(rawBody)
+      .digest("hex");
+
+    if (signature !== expectedSignature) {
+      return res.status(400).json({ message: "Invalid webhook signature" });
+    }
+  }
+
+  const event = req.body?.event;
 
   if (event === "payment.captured") {
-    const payment = req.body.payload.payment.entity;
+    const payment = req.body.payload?.payment?.entity;
 
-    const booking = await Booking.findOne({
-      razorpayOrderId: payment.order_id,
-    });
-
-    if (booking) {
-      const adminCommission = booking.totalFare! * 0.1;
-      const partnerAmount = booking.totalFare! - adminCommission;
-
-      booking.paymentStatusForOnline = "paid";
-      booking.razorpayPaymentId = payment.id;
-      booking.bookingStatus = "confirmed";
-      booking.set({
-        paymentDeadline: null,
-        expireAt: null,
+    if (payment?.order_id) {
+      const booking = await Booking.findOne({
+        razorpayOrderId: payment.order_id,
       });
-      booking.adminCommission = adminCommission;
-      booking.partnerAmount = partnerAmount;
-      await booking.save();
+
+      if (booking) {
+        const totalFare = booking.totalFare || (payment.amount ? Number(payment.amount) / 100 : 0);
+        const adminCommission = Math.round(totalFare * 0.1);
+        const partnerAmount = totalFare - adminCommission;
+
+        booking.paymentStatusForOnline = "paid";
+        booking.razorpayPaymentId = payment.id;
+        booking.bookingStatus = "confirmed";
+        booking.set({
+          paymentDeadline: null,
+          expireAt: null,
+        });
+        booking.adminCommission = adminCommission;
+        booking.partnerAmount = partnerAmount;
+        await booking.save();
+      }
     }
   }
 
@@ -429,18 +492,19 @@ export const createPaymentOrderForCOD = tryCatch(
       return sendError(res, "Total Amount not found", null, 401);
     }
 
-    // const adminCommission = Number(totalFare) * 0.1;
-    // const partnerAmount = Number(totalFare) - adminCommission;
+    const fareNumber = Number(totalFare);
+    const adminCommission = Math.round(fareNumber * 0.1);
+    const partnerAmount = fareNumber - adminCommission;
 
     booking.paymentMethod = "cod";
     booking.bookingStatus = "confirmed";
-    booking.totalFare = Number(totalFare);
+    booking.totalFare = fareNumber;
+    booking.adminCommission = adminCommission;
+    booking.partnerAmount = partnerAmount;
     booking.set({
       paymentDeadline: null,
       expireAt: null,
     });
-    // booking.adminCommission = adminCommission;
-    // booking.partnerAmount = partnerAmount;
 
     await booking.save();
 
@@ -682,8 +746,8 @@ export const generateDropOtp = tryCatch(
       },
     });
 
-    return sendSuccess(res, "Drop OTP generated", {
-      otp,
+    return sendSuccess(res, "Drop OTP generated and sent to passenger", {
+      sent: true,
     });
   },
 );
@@ -781,6 +845,15 @@ export const completeRideByPartner = tryCatch(
       return sendError(
         res,
         `Ride is ${booking.bookingStatus}. Only started rides can be completed.`,
+      );
+    }
+
+    if (booking.dropOtp) {
+      return sendError(
+        res,
+        "Drop OTP verification is required to complete this ride. Please verify with passenger OTP.",
+        null,
+        400,
       );
     }
 
@@ -882,8 +955,16 @@ export const cancelRideByUser = tryCatch(
 export const getUserRide = tryCatch(async (req: AuthenticatedRequest, res) => {
   const { userId } = req.params;
 
-  if (!userId) {
+  if (!req.user?._id) {
     return sendError(res, "Please Login First", null, 401);
+  }
+
+  if (!userId) {
+    return sendError(res, "User ID is required", null, 400);
+  }
+
+  if (req.user._id.toString() !== userId && req.user.role !== "admin") {
+    return sendError(res, "Unauthorized access to ride details", null, 403);
   }
 
   const booking = await Booking.findOne({
@@ -925,79 +1006,70 @@ export const getAdminDashboard = tryCatch(
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
     // =====================================================
-    // REVENUE DATA
+    // REVENUE DATA (AGGREGATION - O(1) Memory, High Performance)
     // =====================================================
 
-    const completedBookings = await Booking.find({
-      bookingStatus: "completed",
-    });
+    const [overallStats, todayStats, last7DaysStats] = await Promise.all([
+      Booking.aggregate([
+        { $match: { bookingStatus: "completed" } },
+        {
+          $group: {
+            _id: null,
+            totalRevenue: { $sum: "$adminCommission" },
+            totalFareCollected: { $sum: "$totalFare" },
+            totalPartnerPayout: { $sum: "$partnerAmount" },
+            totalCompletedRides: { $sum: 1 },
+          },
+        },
+      ]),
+      Booking.aggregate([
+        {
+          $match: {
+            bookingStatus: "completed",
+            updatedAt: { $gte: startOfToday },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            todayRevenue: { $sum: "$adminCommission" },
+          },
+        },
+      ]),
+      Booking.aggregate([
+        {
+          $match: {
+            bookingStatus: "completed",
+            updatedAt: { $gte: sevenDaysAgo },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            last7DaysRevenue: { $sum: "$adminCommission" },
+          },
+        },
+      ]),
+    ]);
 
-    const totalRevenue = completedBookings.reduce(
-      (sum, booking) => sum + (booking.adminCommission || 0),
-      0,
-    );
+    const totalRevenue = overallStats[0]?.totalRevenue || 0;
+    const totalFareCollected = overallStats[0]?.totalFareCollected || 0;
+    const totalPartnerPayout = overallStats[0]?.totalPartnerPayout || 0;
+    const totalCompletedRides = overallStats[0]?.totalCompletedRides || 0;
 
-    const totalFareCollected = completedBookings.reduce(
-      (sum, booking) => sum + (booking.totalFare || 0),
-      0,
-    );
-
-    const totalPartnerPayout = completedBookings.reduce(
-      (sum, booking) => sum + (booking.partnerAmount || 0),
-      0,
-    );
-
-    const totalCompletedRides = completedBookings.length;
-
-    // =====================================================
-    // TODAY REVENUE
-    // =====================================================
-
-    const todayBookings = await Booking.find({
-      bookingStatus: "completed",
-      updatedAt: {
-        $gte: startOfToday,
-      },
-    });
-
-    const todayRevenue = todayBookings.reduce(
-      (sum, booking) => sum + (booking.adminCommission || 0),
-      0,
-    );
-
-    // =====================================================
-    // LAST 7 DAYS REVENUE
-    // =====================================================
-
-    const last7DaysBookings = await Booking.find({
-      bookingStatus: "completed",
-      updatedAt: {
-        $gte: sevenDaysAgo,
-      },
-    });
-
-    const last7DaysRevenue = last7DaysBookings.reduce(
-      (sum, booking) => sum + (booking.adminCommission || 0),
-      0,
-    );
+    const todayRevenue = todayStats[0]?.todayRevenue || 0;
+    const last7DaysRevenue = last7DaysStats[0]?.last7DaysRevenue || 0;
 
     // =====================================================
     // CANCELLATION DATA
     // =====================================================
 
-    const totalCancelledRides = await Booking.countDocuments({
-      bookingStatus: "cancelled",
-    });
-
-    const cancelledByUser = await Booking.countDocuments({
-      bookingStatus: "cancelled",
-      cancelledBy: "user",
-    });
-
-    const cancelledByPartner = await Booking.countDocuments({
-      bookingStatus: "cancelled",
-      cancelledBy: "partner",
-    });
+    const [totalCancelledRides, cancelledByUser, cancelledByPartner] =
+      await Promise.all([
+        Booking.countDocuments({ bookingStatus: "cancelled" }),
+        Booking.countDocuments({ bookingStatus: "cancelled", cancelledBy: "user" }),
+        Booking.countDocuments({ bookingStatus: "cancelled", cancelledBy: "partner" }),
+      ]);
 
     // =====================================================
     // PARTNER ANALYTICS
@@ -1079,11 +1151,11 @@ export const getAdminDashboard = tryCatch(
       (partner) => partner.totalBookings >= 5,
     );
 
-    const bestPartner = eligiblePartners.sort(
+    const bestPartner = [...eligiblePartners].sort(
       (a, b) => b.completionRate - a.completionRate,
     )[0];
 
-    const worstPartner = eligiblePartners.sort(
+    const worstPartner = [...eligiblePartners].sort(
       (a, b) => b.cancellationRate - a.cancellationRate,
     )[0];
 

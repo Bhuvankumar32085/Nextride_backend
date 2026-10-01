@@ -780,13 +780,16 @@ export const checkPartnerOnboardingStatusIS6 = tryCatch(async (req, res) => {
 });
 
 export const getPartnerWithIn5_Km = tryCatch(async (req, res) => {
-  const { pickupLat, pickupLon, vehicleType } = req.body;
+  const { pickupLat, pickupLon, vehicleType, maxDistance } = req.body;
 
-  if (pickupLat === undefined || pickupLon === undefined) {
+  const latNum = Number(pickupLat);
+  const lonNum = Number(pickupLon);
+
+  if (pickupLat === undefined || pickupLon === undefined || isNaN(latNum) || isNaN(lonNum) || (latNum === 0 && lonNum === 0)) {
     return res.status(400).json({
       success: false,
-      message: "pickupLat and pickupLon are required",
-      data: null,
+      message: "Valid pickupLat and pickupLon coordinates are required",
+      data: [],
     });
   }
 
@@ -794,7 +797,7 @@ export const getPartnerWithIn5_Km = tryCatch(async (req, res) => {
     return res.status(400).json({
       success: false,
       message: "Vehicle Type is required",
-      data: null,
+      data: [],
     });
   }
 
@@ -809,42 +812,55 @@ export const getPartnerWithIn5_Km = tryCatch(async (req, res) => {
       },
     );
 
-    ownerIds = data.ownerIds;
-    vehicles = data.data;
+    ownerIds = data.ownerIds || [];
+    vehicles = data.data || [];
   } catch (error) {
-    console.log(error);
+    console.log("Error fetching vehicles from Ride service:", error);
 
     return res.status(500).json({
       success: false,
-      message: "Unable to fetch vehicles",
-      data: null,
+      message: "Unable to fetch vehicles from Ride service",
+      data: [],
     });
   }
+
+  if (ownerIds.length === 0) {
+    return res.status(200).json({
+      success: true,
+      message: "No approved partners found with the requested vehicle type",
+      totalPartners: 0,
+      data: [],
+    });
+  }
+
+  const radiusInMeters = Number(maxDistance) || 15000; // default 15 KM radius
 
   const nearbyPartners = await User.aggregate([
     {
       $geoNear: {
         near: {
           type: "Point",
-          coordinates: [Number(pickupLon), Number(pickupLat)],
+          coordinates: [lonNum, latNum],
         },
         distanceField: "distance",
-        maxDistance: 5000,
+        maxDistance: radiusInMeters,
         spherical: true,
       },
     },
     {
       $match: {
         role: "partner",
-        // isOnline: true,
         _id: {
           $in: ownerIds.map((id) => new mongoose.Types.ObjectId(id)),
         },
       },
     },
+    {
+      $project: {
+        password: 0,
+      },
+    },
   ]);
-
-
 
   const finalResult = nearbyPartners
     .map((partner) => {

@@ -39,13 +39,24 @@ app.get("/", (_, res) => {
 
 socketHandler(io);
 
-videoKycStarted();
-videoKycResult();
-videoKysReApply();
-videoKycResultForAdmin();
-finalReviewRejectionOrApproval();
-notifyPartnerForBooking();
-notifyUserForBookingByPartner();
+const initConsumers = async () => {
+  try {
+    await Promise.all([
+      videoKycStarted(),
+      videoKycResult(),
+      videoKysReApply(),
+      videoKycResultForAdmin(),
+      finalReviewRejectionOrApproval(),
+      notifyPartnerForBooking(),
+      notifyUserForBookingByPartner(),
+    ]);
+    console.log("🐇 All Realtime consumers initialized successfully");
+  } catch (error) {
+    console.error("⚠️ Warning: Realtime RabbitMQ consumers failed to initialize:", error);
+  }
+};
+
+initConsumers();
 
 app.use(chartRoute);
 

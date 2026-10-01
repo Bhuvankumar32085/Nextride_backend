@@ -220,9 +220,6 @@ const bookingSchema = new mongoose.Schema<IBooking>(
 
     expireAt: {
       type: Date,
-      index: {
-        expires: 0,
-      },
     },
   },
   {
@@ -232,6 +229,9 @@ const bookingSchema = new mongoose.Schema<IBooking>(
 
 bookingSchema.index({ pickupLocation: "2dsphere" });
 bookingSchema.index({ dropLocation: "2dsphere" });
+bookingSchema.index({ driverId: 1, bookingStatus: 1, createdAt: -1 });
+bookingSchema.index({ userId: 1, bookingStatus: 1 });
+bookingSchema.index({ bookingStatus: 1, updatedAt: -1 });
 
 const Booking = mongoose.model<IBooking>("Booking", bookingSchema);
 

@@ -26,7 +26,7 @@ const router = express.Router();
 router.post("/register", register);
 router.post("/google-login", googleLogin);
 router.post("/login", login);
-router.post("/verify-email", verifyEmailAfterOtpIsValid);
+router.post("/verify-email", verifyInternalCommunication, verifyEmailAfterOtpIsValid);
 router.get("/current-user", getCurrentUser);
 router.get("/admin/get-partners", findTotalPartner);
 router.post("/logout", logout);

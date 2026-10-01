@@ -18,7 +18,16 @@ app.use(
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-startPartnerApprovedConsumer();
+const initConsumers = async () => {
+  try {
+    await startPartnerApprovedConsumer();
+    console.log("🐇 Ride consumers initialized successfully");
+  } catch (error) {
+    console.error("⚠️ Warning: Ride RabbitMQ consumers failed to initialize:", error);
+  }
+};
+
+initConsumers();
 
 app.use("/api/v1/ride", userRoutes);
 

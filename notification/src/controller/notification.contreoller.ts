@@ -21,6 +21,7 @@ export const createOtp = tryCatch(async (req: AuthenticatedRequest, res) => {
     res.status(400).json({
       message: "Email not found in token",
     });
+    return;
   }
 
   if (!otp) {
@@ -60,11 +61,21 @@ export const verifyOtp = tryCatch(async (req, res) => {
 
    
     try {
-      axios.post(`${process.env.AUTH_SERVICE_URL}/api/v1/user/verify-email`, {
-        email,
-      });
+      await axios.post(
+        `${process.env.AUTH_SERVICE_URL}/api/v1/user/verify-email`,
+        {
+          email,
+        },
+        {
+          headers: {
+            "x-service-secret": process.env.COMMUNICATION_SECRET,
+            communication_secret: process.env.COMMUNICATION_SECRET,
+          },
+        },
+      );
     } catch (error) {
       console.error("Error verifying email after OTP is valid:", error);
+      return res.status(500).json({ message: "Failed to update email verification status in Auth service" });
     }
 
     return res.status(200).json({ message: "OTP verified successfully" });

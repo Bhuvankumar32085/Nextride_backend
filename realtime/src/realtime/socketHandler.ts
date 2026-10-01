@@ -69,12 +69,21 @@ export const socketHandler = (io: Server) => {
     // disconnect
     socket.on("disconnect", async () => {
       console.log("Disconnected:", socket.user?._id);
-      await publishEvent("user.status", {
-        event: "USER_OFFLINE",
-        payload: {
-          userId: socket.user!._id.toString(),
-        },
-      });
+      if (socket.user?._id) {
+        const remainingSockets = io.sockets.adapter.rooms.get(socket.user._id)?.size || 0;
+        if (remainingSockets === 0) {
+          try {
+            await publishEvent("user.status", {
+              event: "USER_OFFLINE",
+              payload: {
+                userId: socket.user._id.toString(),
+              },
+            });
+          } catch (error) {
+            console.log("Queue failed on disconnect", error);
+          }
+        }
+      }
     });
   });
 };

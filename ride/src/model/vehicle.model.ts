@@ -61,6 +61,9 @@ const vehicleSchema = new mongoose.Schema<IVehicle>(
   { timestamps: true },
 );
 
+vehicleSchema.index({ type: 1, status: 1 });
+vehicleSchema.index({ owner: 1 });
+
 const Vehicle = mongoose.model<IVehicle>("Vehicle", vehicleSchema);
 
 export default Vehicle;
